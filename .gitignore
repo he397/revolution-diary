@@ -1,0 +1,9 @@
+__pycache__/
+*.bak
+*.html
+*.png
+*.docx
+.DS_Store
+*.egg-info/
+api_key.txt
+.claude/
