@@ -1,0 +1,5 @@
+{
+  "streamlit": {
+    "entry": "search_ui.py"
+  }
+}
