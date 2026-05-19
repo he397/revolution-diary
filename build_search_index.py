@@ -130,7 +130,7 @@ def build_index():
     print(f"   分词完成: {len(tokenized)} 条")
 
     print(f"🤖 训练 TF-IDF...")
-    vectorizer = TfidfVectorizer(max_features=50000)
+    vectorizer = TfidfVectorizer(max_features=30000)
     tfidf_matrix = vectorizer.fit_transform(tokenized)
     print(f"   词表大小: {len(vectorizer.get_feature_names_out())}")
     print(f"   矩阵形状: {tfidf_matrix.shape}")
@@ -141,7 +141,6 @@ def build_index():
         pickle.dump({
             'vectorizer': vectorizer,
             'tfidf_matrix': tfidf_matrix,
-            'tokenized_texts': tokenized,
         }, f)
     with open(META_PATH, 'wb') as f:
         pickle.dump(entries, f)
@@ -158,13 +157,16 @@ def build_index():
 class SearchEngine:
     """混合搜索引擎：TF-IDF + DeepSeek 查询扩展"""
 
-    def __init__(self):
+    def __init__(self, meta=None):
         with open(INDEX_PATH, 'rb') as f:
             data = pickle.load(f)
             self.vectorizer = data['vectorizer']
             self.tfidf_matrix = data['tfidf_matrix']
-        with open(META_PATH, 'rb') as f:
-            self.meta = pickle.load(f)
+        if meta is not None:
+            self.meta = meta
+        else:
+            with open(META_PATH, 'rb') as f:
+                self.meta = pickle.load(f)
         self.jieba = get_jieba()
         self.api_key = self._get_api_key()
 

@@ -16,16 +16,27 @@ from event_timeline_ui import load_event_data, render_cross_diary_detail, load_c
 
 CLASSIFIED_FILE = os.path.join(BASE_DIR, "parsed_data/classified_entries.json")
 
-@st.cache_data
-def load_stats_data():
-    """加载统计数据（直接从 pickle 读取，避免 engine 缓存问题）"""
-    import pandas as pd
-    import pickle as _pickle
+# ============================================================
+# 共享元数据缓存（全局只加载一次 entries_meta.pkl）
+# ============================================================
+@st.cache_resource
+def get_shared_meta():
+    """所有函数共享的条目元数据，避免重复加载"""
+    import pickle
     meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
     if not os.path.exists(meta_path):
-        return None
+        return []
     with open(meta_path, 'rb') as f:
-        meta = _pickle.load(f)
+        return pickle.load(f)
+
+
+@st.cache_data
+def load_stats_data():
+    """加载统计数据（直接从共享缓存读取）"""
+    import pandas as pd
+    meta = get_shared_meta()
+    if not meta:
+        return None
     records = []
     for e in meta:
         records.append({
@@ -121,12 +132,10 @@ LOCATION_PATTERN_CACHE = None
 @st.cache_data
 def get_tags_with_locations(diary_name):
     """返回指定日记中具有地点数据的子标签列表"""
-    import pickle, re
+    import re
     from collections import Counter
 
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    with open(meta_path, 'rb') as f:
-        meta = pickle.load(f)
+    meta = get_shared_meta()
 
     loc_pattern = re.compile('|'.join(re.escape(l) for l in sorted(LOCATION_COORDS.keys(), key=len, reverse=True)))
     tags = Counter()
@@ -145,12 +154,10 @@ def get_tags_with_locations(diary_name):
 @st.cache_data
 def extract_route_data(diary_name, sub_tag):
     """提取单本日记指定子标签的按日期排序地点序列"""
-    import pickle, re
+    import re
     from collections import OrderedDict
 
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    with open(meta_path, 'rb') as f:
-        meta = pickle.load(f)
+    meta = get_shared_meta()
 
     loc_pattern = re.compile('|'.join(re.escape(l) for l in sorted(LOCATION_COORDS.keys(), key=len, reverse=True)))
 
@@ -448,12 +455,10 @@ def _build_point_map(loc_data):
 @st.cache_data
 def extract_diary_locations(sub_tag=None, year_range=None, diary_name=None):
     """提取指定条件下的日记地点分布，返回 list[lat, lon, location, count, date_min, date_max]"""
-    import pickle, re
+    import re
     from collections import defaultdict
 
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    with open(meta_path, 'rb') as f:
-        meta = pickle.load(f)
+    meta = get_shared_meta()
 
     # Build location regex
     loc_pattern = re.compile('|'.join(re.escape(l) for l in sorted(LOCATION_COORDS.keys(), key=len, reverse=True)))
@@ -504,19 +509,16 @@ def extract_diary_locations(sub_tag=None, year_range=None, diary_name=None):
 @st.cache_resource
 def get_engine():
     try:
-        return SearchEngine()
+        return SearchEngine(meta=get_shared_meta())
     except FileNotFoundError:
         st.error("⚠️ 索引未构建")
         return None
 
 @st.cache_data
 def get_meta():
-    import json
-    with open(os.path.join(BASE_DIR, "parsed_data/diaries_structured.json")) as f:
-        data = json.load(f)
-    entries = data['entries']
-    diaries = sorted(set(e['diary_name'] for e in entries if e.get('diary_name')))
-    years = sorted(set(e['year'] for e in entries if e.get('year')))
+    meta = get_shared_meta()
+    diaries = sorted(set(e['diary_name'] for e in meta if e.get('diary_name')))
+    years = sorted(set(e['year'] for e in meta if e.get('year')))
     return diaries, years
 
 @st.cache_data
@@ -529,10 +531,7 @@ def get_categories():
 @st.cache_data
 def get_diary_list():
     """获取所有日记名称列表"""
-    import pickle as _pickle
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    with open(meta_path, 'rb') as f:
-        meta = _pickle.load(f)
+    meta = get_shared_meta()
     diaries = sorted(set(e.get('diary_name', '') for e in meta if e.get('diary_name')))
     return diaries
 
@@ -809,10 +808,7 @@ def get_diary_raw_text(diary_name):
 
 def get_diary_entries(diary_name):
     """获取某本日记的全部条目，按时间排序"""
-    import pickle as _pickle
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    with open(meta_path, 'rb') as f:
-        meta = _pickle.load(f)
+    meta = get_shared_meta()
     entries = [e for e in meta if e.get('diary_name') == diary_name]
     entries.sort(key=lambda e: (e.get('year') or 9999, e.get('month') or 99, e.get('day') or 99))
     return entries
@@ -821,10 +817,7 @@ def get_diary_entries(diary_name):
 @st.cache_data
 def browse_all_entries(min_year=None, max_year=None, diary_names=None):
     """浏览全部条目，按时间排序，可选按年代/日记名筛选"""
-    import pickle as _pickle
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    with open(meta_path, 'rb') as f:
-        meta = _pickle.load(f)
+    meta = get_shared_meta()
     result = []
     for e in meta:
         if min_year and (e.get('year') or 9999) < min_year: continue
@@ -838,18 +831,15 @@ def browse_all_entries(min_year=None, max_year=None, diary_names=None):
 @st.cache_data
 def load_sentiment_extremes(n=5):
     """加载情感极端案例（最正向/负向条目）"""
-    import pickle as _pickle
     import json
     SENT_FILE = os.path.join(BASE_DIR, "parsed_data/sentiment_results.json")
     if not os.path.exists(SENT_FILE):
         return None
     with open(SENT_FILE) as f:
         sent_data = json.load(f)
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    if not os.path.exists(meta_path):
+    meta = get_shared_meta()
+    if not meta:
         return None
-    with open(meta_path, 'rb') as f:
-        meta = _pickle.load(f)
     entries = sent_data.get("entries", [])
     sorted_entries = sorted(entries, key=lambda x: x['score'])
     result = {"positive": [], "negative": []}
@@ -945,10 +935,7 @@ def _export_txt(results, query, filter_info, include_rel=False):
 @st.cache_data
 def get_related(diary_name, year, month, day, text_head, category, sub_tag, top_k=6):
     """查找关联条目：同分类 + 同子标签 / 同年 / 同日记本"""
-    import pickle as _pickle
-    meta_path = os.path.join(BASE_DIR, "search_index/entries_meta.pkl")
-    with open(meta_path, 'rb') as f:
-        meta = _pickle.load(f)
+    meta = get_shared_meta()
     scored = []
     for e in meta:
         # 排除自身
